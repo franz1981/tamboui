@@ -465,6 +465,13 @@ public final class Buffer {
      * @param style the style to apply
      */
     public void setStyle(Rect area, Style style) {
+        if (Style.EMPTY.equals(style)) {
+            // An empty patch reproduces every field of the cell's own style, so patchStyle
+            // returns the identical Cell for every position: the whole pass cannot change the
+            // buffer. Widgets fill their background this way on every frame, so skipping it
+            // saves a pass over the widget's entire area.
+            return;
+        }
         Rect intersection = this.area.intersection(area);
         if (intersection.isEmpty()) {
             return;
