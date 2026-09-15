@@ -25,6 +25,12 @@ public final class Buffer {
 
     // Pre-allocated single-char strings for ASCII codepoints to avoid repeated allocation
     private static final String[] ASCII_STRINGS = new String[128];
+    // Lazily interned symbols for U+2500..U+28FF (box drawing, block elements, geometric shapes,
+    // misc symbols, braille): the glyphs borders, sparklines and canvases emit every frame.
+    // Sharing the instance lets String.equals() exit on identity in Buffer.diff().
+    private static final int GLYPH_BASE = 0x2500;
+    private static final String[] GLYPH_STRINGS = new String[0x2900 - GLYPH_BASE];
+
     static {
         for (int i = 0; i < 128; i++) {
             ASCII_STRINGS[i] = String.valueOf((char) i);
@@ -38,6 +44,29 @@ public final class Buffer {
     private Buffer(Rect area, Cell[] content) {
         this.area = area;
         this.content = content;
+    }
+
+    /**
+     * Returns the shared {@link String} for a code point, so that cells holding the same glyph
+     * share one instance and {@link String#equals} can exit on identity when buffers are diffed.
+     *
+     * @param codePoint the code point to render
+     * @return the symbol for that code point
+     */
+    private static String symbolFor(int codePoint) {
+        if (codePoint < 128) {
+            return ASCII_STRINGS[codePoint];
+        }
+        int idx = codePoint - GLYPH_BASE;
+        if (idx >= 0 && idx < GLYPH_STRINGS.length) {
+            String s = GLYPH_STRINGS[idx];
+            if (s == null) {
+                s = String.valueOf((char) codePoint);
+                GLYPH_STRINGS[idx] = s; // benign race: equal immutable values
+            }
+            return s;
+        }
+        return new String(Character.toChars(codePoint));
     }
 
     /**
@@ -313,7 +342,7 @@ public final class Buffer {
             // optimisation in AbstractBackend and corrupts all subsequent cells in the row.
             String symbol = (codePoint < 0x20 || codePoint == 0x7F)
                     ? " "
-                    : codePoint < 128 ? ASCII_STRINGS[codePoint] : new String(Character.toChars(codePoint));
+                    : symbolFor(codePoint);
 
             if (charWidth == 2 && col + 1 >= area.right()) {
                 // Wide char at rightmost column: no room for continuation, replace with space
